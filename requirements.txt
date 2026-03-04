@@ -8,3 +8,4 @@ langchain-huggingface
 faiss-cpu
 tiktoken
 openai
+sentence-transformers
