@@ -1,0 +1,46 @@
+# ========================
+# Virtual Environment
+# ========================
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+
+# ========================
+# Environment / Secret Keys
+# ========================
+.env
+*.env
+
+# ========================
+# Python Cache
+# ========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ========================
+# FAISS Index (auto-generated)
+# ========================
+faiss_index/
+
+# ========================
+# OS Files
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# Jupyter Notebooks checkpoints
+# ========================
+.ipynb_checkpoints/
+
+# ========================
+# IDE Files
+# ========================
+.vscode/
+.idea/
+*.sublime-project
