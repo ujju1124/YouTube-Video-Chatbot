@@ -29,7 +29,7 @@
 - 📄 **Citations** — shows exactly which part of the video was used to answer
 - 🕘 **Video History** — switch between previously loaded videos instantly
 - 🔒 **Secure Keys** — API keys stored in `.env`, never hardcoded
-- 🆓 **Free Stack** — GPT-4o via GitHub Student Developer Pack
+- 🆓 **Free Stack** — GPT-4o 
 
 ---
 
