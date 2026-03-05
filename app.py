@@ -143,6 +143,102 @@ def fetch_transcript(video_id):
         if not supadata_key:
             raise Exception("No Supadata API key found")
 
+        # NOTE: We do NOT pass text=true here
+        # Without text=true → content is a LIST of {text, offset, duration} objects
+        # With text=true    → content is a plain STRING (our old bug)
+        # List format is safer — we can always join it ourselves
+        response = requests.get(
+            "https://api.supadata.ai/v1/youtube/transcript",
+            headers={"x-api-key": supadata_key},
+            params={"videoId": video_id, "lang": "en"},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            data     = response.json()
+            content  = data.get("content", [])
+            language = data.get("lang", "en")
+
+            # content is a list of {"text": "...", "offset": 123, "duration": 456}
+            # We only need the "text" field from each chunk
+            if isinstance(content, list):
+                transcript = " ".join(
+                    chunk["text"] for chunk in content if "text" in chunk
+                )
+            elif isinstance(content, str):
+                # Safety fallback — handles text=true response just in case
+                transcript = content
+            else:
+                transcript = ""
+
+            if transcript.strip():
+                return transcript, f"{language} (via Supadata)", None
+
+    except Exception:
+        pass
+
+    # ── Both options failed ───────────────────────────────────────────────
+    return None, None, (
+        "⚠️ Could not fetch transcript automatically. "
+        "This video may not have captions, or the server is being blocked by YouTube. "
+        "Try a different video."
+    )    """
+    INPUT  : YouTube video ID string
+             Example: "3MG4mtnJvAg"
+
+    PROCESS: Tries transcript sources in this priority order:
+             1. youtube-transcript-api — free, works locally
+             2. Supadata API           — works on cloud, handles IP bans
+             Each attempt silently falls back to the next if it fails
+
+    OUTPUT : Tuple of (transcript, language_used, error)
+             Success → ("transcript text...", "en", None)
+             Failure → (None, None, "friendly error message")
+
+             Example success via youtube-transcript-api:
+             ("Today we discuss AI...", "en", None)
+
+             Example success via Supadata fallback:
+             ("Today we discuss AI...", "en (via Supadata)", None)
+
+             Example failure (both failed):
+             (None, None, "Could not fetch transcript...")
+    """
+
+    # ── Try 1: youtube-transcript-api (free, works locally) ──────────────
+    try:
+        api = YouTubeTranscriptApi()
+
+        try:
+            transcript_list = api.fetch(video_id, languages=['en'])
+            language_used   = 'en'
+        except Exception:
+            try:
+                transcript_list = api.fetch(video_id, languages=['en-US', 'en-GB', 'en-CA'])
+                language_used   = 'en (auto-generated)'
+            except Exception:
+                available       = api.list(video_id)
+                first_lang      = available[0].language_code
+                transcript_list = api.fetch(video_id, languages=[first_lang])
+                language_used   = first_lang
+
+        transcript = " ".join(chunk.text for chunk in transcript_list)
+        return transcript, language_used, None
+
+    except Exception:
+        pass  # silently move to Supadata
+
+    # ── Try 2: Supadata API (dedicated transcript service) ────────────────
+    # Supadata handles IP rotation internally — works on Streamlit Cloud
+    try:
+        try:
+            supadata_key = st.secrets["SUPADATA_API_KEY"]
+        except Exception:
+            supadata_key = os.getenv("SUPADATA_API_KEY")
+
+        if not supadata_key:
+            raise Exception("No Supadata API key found")
+
         response = requests.get(
             "https://api.supadata.ai/v1/youtube/transcript",
             headers={"x-api-key": supadata_key},
