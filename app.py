@@ -31,6 +31,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_huggingface import HuggingFaceEmbeddings
+import requests                    # ← ADD THIS LINE
+
 
 
 # ============================================================
@@ -73,63 +75,112 @@ def extract_video_id(url):
 
 
 # ============================================================
-# STEP 2 — FETCH TRANSCRIPT FROM YOUTUBE (Multi-language)
+# STEP 2 — FETCH TRANSCRIPT FROM YOUTUBE (Production Ready)
 # ============================================================
 def fetch_transcript(video_id):
     """
-    INPUT  : A YouTube video ID string
+    INPUT  : YouTube video ID string
              Example: "3MG4mtnJvAg"
 
-    PROCESS: Tries to fetch captions in this order:
-             1. English manual captions ('en')
-             2. English auto-generated variants ('en-US', 'en-GB', 'en-CA')
-             3. Any available language on the video (fallback)
-             Each attempt is wrapped in a try/except so it moves
-             to the next option if the current one fails
+    PROCESS: Tries transcript sources in this priority order:
+             1. youtube-transcript-api — free, works locally
+             2. Supadata API           — works on cloud, handles IP bans
+             Each attempt silently falls back to the next if it fails
 
-    OUTPUT : A tuple of (transcript, language_used, error)
-             Success → ("full transcript text...", "en", None)
-             Failure → (None, None, "error message string")
+    OUTPUT : Tuple of (transcript, language_used, error)
+             Success → ("transcript text...", "en", None)
+             Failure → (None, None, "friendly error message")
 
-             Example success:
-             ("Today we talk about AI...", "en", None)
+             Example success via youtube-transcript-api:
+             ("Today we discuss AI...", "en", None)
 
-             Example fallback success:
-             ("Hoy hablamos de IA...", "es", None)
+             Example success via Supadata fallback:
+             ("Today we discuss AI...", "en", None)
 
-             Example failure:
-             (None, None, "No captions available for this video.")
+             Example failure (both failed):
+             (None, None, "Could not fetch transcript...")
     """
+
+    # ── Try 1: youtube-transcript-api (free, works perfectly locally) ────
+    # This will fail on Streamlit Cloud due to YouTube IP bans
+    # but we still try it first — works great for local development
     try:
         api = YouTubeTranscriptApi()
 
-        # Try 1 — English manual captions
+        # Try English manual captions first
         try:
             transcript_list = api.fetch(video_id, languages=['en'])
-            language_used = 'en'
+            language_used   = 'en'
 
         except Exception:
-
-            # Try 2 — Auto-generated English variants
+            # Try auto-generated English variants
             try:
                 transcript_list = api.fetch(video_id, languages=['en-US', 'en-GB', 'en-CA'])
-                language_used = 'en (auto-generated)'
+                language_used   = 'en (auto-generated)'
 
             except Exception:
-
-                # Try 3 — Whatever language is available on the video
-                available = api.list(video_id)
-                first_lang = available[0].language_code
+                # Fall back to any available language
+                available       = api.list(video_id)
+                first_lang      = available[0].language_code
                 transcript_list = api.fetch(video_id, languages=[first_lang])
-                language_used = first_lang
+                language_used   = first_lang
 
         transcript = " ".join(chunk.text for chunk in transcript_list)
         return transcript, language_used, None
 
-    except TranscriptsDisabled:
-        return None, None, "No captions available for this video."
-    except Exception as e:
-        return None, None, f"Error fetching transcript: {str(e)}"
+    except Exception:
+        # Silently move on to Supadata — don't show error yet
+        pass
+
+    # ── Try 2: Supadata API (dedicated transcript service) ───────────────
+    # Supadata handles all IP rotation/proxies internally
+    # Works on Streamlit Cloud, AWS, Azure — anywhere
+    try:
+        # Load Supadata key — works from both .env and Streamlit secrets
+        try:
+            supadata_key = st.secrets["SUPADATA_API_KEY"]
+        except Exception:
+            supadata_key = os.getenv("SUPADATA_API_KEY")
+
+        if not supadata_key:
+            raise Exception("No Supadata API key found")
+
+        response = requests.get(
+            "https://api.supadata.ai/v1/youtube/transcript",
+            headers={"x-api-key": supadata_key},
+            params={
+                "videoId": video_id,
+                "lang": "en",
+                "text": "true"    # returns plain text instead of timestamped chunks
+            },
+            timeout=30            # don't wait forever
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # Supadata returns { "content": [...], "lang": "en" }
+            # content is a list of { "text": "...", "offset": 123 } objects
+            content    = data.get("content", [])
+            language   = data.get("lang", "en")
+
+            # Join all text chunks into one string
+            transcript = " ".join(
+                chunk["text"] for chunk in content if "text" in chunk
+            )
+
+            if transcript:
+                return transcript, f"{language} (via Supadata)", None
+
+    except Exception:
+        pass   # move to final failure message
+
+    # ── Both options failed ───────────────────────────────────────────────
+    return None, None, (
+        "⚠️ Could not fetch transcript automatically. "
+        "This video may not have captions, or the server is being blocked by YouTube. "
+        "Try a different video or paste the transcript manually."
+    )
 
 
 # ============================================================

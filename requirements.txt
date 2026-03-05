@@ -9,3 +9,4 @@ faiss-cpu
 tiktoken
 openai
 sentence-transformers
+requests
