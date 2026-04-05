@@ -38,7 +38,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 
 # ============================================================
-# LOAD API KEYS
+# LOAD API KEYSS
 # ============================================================
 load_dotenv()
 
